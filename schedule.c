@@ -55,52 +55,31 @@ int* getQuantum(char *argv[]) {
     return quantum;
 }
 
-//char** getMethods(int argc, char* argv[]) {
-//    size_t totalSize = sizeof(char*) * (argc + 1); // +1 for the NULL pointer
-//    for (int i = 0; i < argc; i++) {
-//        totalSize += strlen(argv[i]) + 1; // +1 for null terminator
-//    }
-//
-//    // Create a memory-mapped region to store argv
-//    char** result = mmap(NULL, totalSize, PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, 0, 0);
-//
-//    if (result == MAP_FAILED) {
-//        perror("Failed mmap in getMethods");
-//        EXIT_FAILURE;
-//    }
-//
-//    // Copy argv and strings to the mmap region
-//    char* dataPtr = (char*)result + sizeof(char*) * (argc + 1); // Start after the array of pointers
-//    for (int i = 0; i < argc; i++) {
-//        result[i] = dataPtr; // Set the pointer in result to point to the copied string
-//        strcpy(dataPtr, argv[i]); // Copy the string
-//        dataPtr += strlen(argv[i]) + 1; // Move dataPtr to the next available position
-//    }
-//
-//    result[argc] = NULL; // Null-terminate the array of pointers
-//
-//    // Print the strings stored in the mmap region
-////    for (int i = 0; result[i] != NULL; i++) {
-////        printf("Argv[%d]: %s\n", i, result[i]);
-////    }
-//
-//    return result;
-//}
-
 struct MethodCall* getMethods(int numMethods, int argc, char *argv[]) {
     //TODO: Handle over 150 process calls.
     //TODO: Handle over 10 argument calls.
     size_t totalSize = sizeof(struct MethodCall) * numMethods;
 
-    struct MethodCall* mappedMethods = (struct MethodCall*)mmap(NULL,
+    struct MethodCall *mappedMethods = (struct MethodCall *)mmap(
+            NULL,
             totalSize,
-            PROT_WRITE,
+            PROT_WRITE, // Set the appropriate permissions
             MAP_SHARED | MAP_ANONYMOUS,
-            -1, 0);
+            -1,
+            0
+    );
 
     if (mappedMethods == MAP_FAILED) {
         perror("Failed mmap in getMethods\n");
         exit(1);
+    }
+
+    // Initialize the individual elements of the array
+    for (int i = 0; i < numMethods; i++) {
+        memset(mappedMethods[i].methodName, 0, sizeof(mappedMethods[i].methodName));
+        for (int j = 0; j < MAX_ARGUMENTS; j++) {
+            mappedMethods[i].arguments[j] = NULL;
+        }
     }
 
     int structMethodCount = 0;
@@ -112,7 +91,8 @@ struct MethodCall* getMethods(int numMethods, int argc, char *argv[]) {
             strcpy(mappedMethods[structMethodCount].methodName, argv[methodCount]);
             for(; argumentCount < argc; argumentCount++) {
                 if(strcmp(argv[argumentCount], ":") != 0) {
-                    mappedMethods[structMethodCount].arguments[structArgumentCount++] = strdup(argv[argumentCount]);
+                    mappedMethods[structMethodCount].arguments[structArgumentCount++] = argv[argumentCount];
+//                    mappedMethods[structMethodCount].arguments[structArgumentCount++] = strdup(argv[argumentCount]);
                 }
                 else {
                     methodCount += 2 + structArgumentCount;
@@ -149,17 +129,17 @@ int main(int argc, char *argv[]) {
     quantum = getQuantum(argv);
     methods = getMethods(numChildren, argc, argv);
 
-//    int count;
-//    int count1;
-//    for(count = 0; count < numChildren; count++) {
-//        printf("methodName call %d:\n\tName: %s\n", count+1, methods[count].methodName);
-//        for(count1 = 0; count1 < MAX_ARGUMENTS; count1++) {
-//            if(methods[count].arguments[count1] == NULL) {
-//                break;
-//            }
-//            printf("\targument %d: %s\n", count1 + 1, methods[count].arguments[count1]);
-//        }
-//    }
+    int count;
+    int count1;
+    for(count = 0; count < numChildren; count++) {
+        printf("methodName call %d:\n\tName: %s\n", count+1, methods[count].methodName);
+        for(count1 = 0; count1 < MAX_ARGUMENTS; count1++) {
+            if(methods[count].arguments[count1] == NULL) {
+                break;
+            }
+            printf("\targument %d: %s\n", count1 + 1, methods[count].arguments[count1]);
+        }
+    }
 
     // start forking
     for (int id=0; id<numChildren; id++) {
@@ -172,14 +152,14 @@ int main(int argc, char *argv[]) {
 
     while ((wpid = wait(&status)) > 0);
 
-    for (int count = 0; count < numChildren; count++) {
-        for (int count1 = 0; count1 < MAX_ARGUMENTS; count1++) {
-            if (methods[count].arguments[count1] == NULL) {
-                break;
-            }
-            free(methods[count].arguments[count1]); // Free the allocated string
-        }
-    }
+//    for (int count = 0; count < numChildren; count++) {
+//        for (int count1 = 0; count1 < MAX_ARGUMENTS; count1++) {
+//            if (methods[count].arguments[count1] == NULL) {
+//                break;
+//            }
+//            free(methods[count].arguments[count1]); // Free the allocated argument string
+//        }
+//    }
 
     // deallocate memory
     munmap(quantum, sizeof(int));
