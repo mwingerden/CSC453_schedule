@@ -13,24 +13,8 @@
 
 struct MethodCall {
     char methodName[50];
-    char *arguments[MAX_ARGUMENTS];
+    char *arguments[MAX_ARGUMENTS + 2];
 };
-
-
-//void two(int n) {
-//    if(n <= 0) {
-//        printf("Only natural numbers are accepted.\n");
-//        return;
-//    }
-//    int spaces = 8 * n;
-//    int i, j;
-//    for(i = 0; i < n; i++) {
-//        for(j = 0;j < spaces; j++) {
-//            printf(" ");
-//        }
-//        printf("%d\n", n);
-//    }
-//}
 
 int numberOfChildren(int argc, char *argv[]) {
     int semicolonCount = 1;
@@ -74,21 +58,26 @@ struct MethodCall* getMethods(int numMethods, int argc, char *argv[]) {
         exit(1);
     }
 
+    char methodName[50] = "./";
     int structMethodCount = 0;
-    int structArgumentCount = 0;
+    int structArgumentCount = 1;
     int methodCount = 2;
     int argumentCount = 3;
     for(; structMethodCount < numMethods; structMethodCount++) {
         for(; methodCount < argc;) {
-            strcpy(mappedMethods[structMethodCount].methodName, argv[methodCount]);
+            strcat(methodName, argv[methodCount]);
+            strcpy(mappedMethods[structMethodCount].methodName, methodName);
+            mappedMethods[structMethodCount].arguments[0] = mappedMethods[structMethodCount].methodName;
             for(; argumentCount < argc; argumentCount++) {
                 if(strcmp(argv[argumentCount], ":") != 0) {
                     mappedMethods[structMethodCount].arguments[structArgumentCount++] = argv[argumentCount];
                 }
                 else {
-                    methodCount += 2 + structArgumentCount;
+                    mappedMethods[structMethodCount].arguments[structArgumentCount] = NULL;
+                    methodCount += 1 + structArgumentCount;
                     argumentCount += 2;
-                    structArgumentCount = 0;
+                    structArgumentCount = 1;
+                    strcpy(methodName, "./");
                     break;
                 }
             }
@@ -109,16 +98,14 @@ void handeSignals(int signum) {
 //    }
 }
 
-void childProcess(int id) {
-    int i = 0;
-    for(; i < 100; i++) {
-        printf("Child Process %d: number %d\n", id, i + 1);
-        fflush(stdout);
-        sleep(1);
+void childProcess(int id, struct MethodCall* methods) {
+    if (execve(methods[id].methodName, methods[id].arguments, NULL) == -1) {
+        perror("execv");
+        exit(EXIT_FAILURE);
     }
 }
 
-void parentProcess(int numChildren, pid_t childPIDs[], const int *quantum) {
+void parentProcess(int numChildren, pid_t* childPIDs, const int *quantum) {
     // Parent Process
     pid_t wpid;
     int numFinished = 0;
@@ -131,6 +118,8 @@ void parentProcess(int numChildren, pid_t childPIDs[], const int *quantum) {
     }
 
     while(numFinished < numChildren) {
+        //TODO: Handle case when child finished before the quantum ended.
+        //TODO: Cancel sleep if current child has terminated in previous loop.
 //        printf("parent starts\n");
         kill(childPIDs[currentChild], SIGCONT);
         sleep(*quantum / 1000);
@@ -140,11 +129,13 @@ void parentProcess(int numChildren, pid_t childPIDs[], const int *quantum) {
 
         if(wpid > 0) {
             // Child has finished
-            printf("Parent: Child exited\n");
-            numFinished++;
+            if(childFinished[currentChild] == 0) {
+                childFinished[currentChild] = 1;
+                printf("Parent: Child exited\n");
+                numFinished++;
+            }
         }
-        else {
-        }
+
         currentChild++;
         if(currentChild >= numChildren) {
             currentChild = 0;
@@ -175,7 +166,7 @@ int main(int argc, char *argv[]) {
 //    int count1;
 //    for(count = 0; count < numChildren; count++) {
 //        printf("methodName call %d:\n\tName: %s\n", count+1, methods[count].methodName);
-//        for(count1 = 0; count1 < MAX_ARGUMENTS; count1++) {
+//        for(count1 = 0; count1 < MAX_ARGUMENTS + 1; count1++) {
 //            if(methods[count].arguments[count1] == NULL) {
 //                break;
 //            }
@@ -197,7 +188,7 @@ int main(int argc, char *argv[]) {
             pause();
 
             //Child execution
-            childProcess(id);
+            childProcess(id, methods);
 
             exit(0);
         }
@@ -209,9 +200,9 @@ int main(int argc, char *argv[]) {
             return 1;
         }
     }
-//
-//    // Parent Process
-//    parentProcess(numChildren, childPIDs, quantum);
+
+    // Parent Process
+    parentProcess(numChildren, childPIDs, quantum);
 
     // Deallocate Memory
     munmap(quantum, sizeof(int));
