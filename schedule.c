@@ -74,14 +74,6 @@ struct MethodCall* getMethods(int numMethods, int argc, char *argv[]) {
         exit(1);
     }
 
-    // Initialize the individual elements of the array
-    for (int i = 0; i < numMethods; i++) {
-        memset(mappedMethods[i].methodName, 0, sizeof(mappedMethods[i].methodName));
-        for (int j = 0; j < MAX_ARGUMENTS; j++) {
-            mappedMethods[i].arguments[j] = NULL;
-        }
-    }
-
     int structMethodCount = 0;
     int structArgumentCount = 0;
     int methodCount = 2;
@@ -92,7 +84,6 @@ struct MethodCall* getMethods(int numMethods, int argc, char *argv[]) {
             for(; argumentCount < argc; argumentCount++) {
                 if(strcmp(argv[argumentCount], ":") != 0) {
                     mappedMethods[structMethodCount].arguments[structArgumentCount++] = argv[argumentCount];
-//                    mappedMethods[structMethodCount].arguments[structArgumentCount++] = strdup(argv[argumentCount]);
                 }
                 else {
                     methodCount += 2 + structArgumentCount;
@@ -108,10 +99,61 @@ struct MethodCall* getMethods(int numMethods, int argc, char *argv[]) {
     return mappedMethods;
 }
 
+void handeSignals(int signum) {
+//    if (signum == SIGCONT) {
+//        printf("Received SIGCONT\n");
+//        // Handle continued execution
+//    } else if (signum == SIGSTOP) {
+//        printf("Received SIGSTOP\n");
+//        // Handle paused execution
+//    }
+}
+
+void childProcess(int id) {
+    int i = 0;
+    for(; i < 100; i++) {
+        printf("Child Process %d: number %d\n", id, i + 1);
+        fflush(stdout);
+        sleep(1);
+    }
+}
+
+void parentProcess(int numChildren, pid_t childPIDs[], const int *quantum) {
+    // Parent Process
+    pid_t wpid;
+    int numFinished = 0;
+    int currentChild = 0;
+    int childFinished[numChildren];
+
+    int i;
+    for(i = 0; i < numChildren; i++) {
+        childFinished[i] = 0;
+    }
+
+    while(numFinished < numChildren) {
+//        printf("parent starts\n");
+        kill(childPIDs[currentChild], SIGCONT);
+        sleep(*quantum / 1000);
+        kill(childPIDs[currentChild], SIGSTOP);
+//        waitpid(childPIDs[currentChild], NULL, WUNTRACED);
+        wpid = waitpid(childPIDs[currentChild], NULL, WNOHANG);
+
+        if(wpid > 0) {
+            // Child has finished
+            printf("Parent: Child exited\n");
+            numFinished++;
+        }
+        else {
+        }
+        currentChild++;
+        if(currentChild >= numChildren) {
+            currentChild = 0;
+        }
+    }
+}
+
 int main(int argc, char *argv[]) {
     int numChildren;
-    int status;
-    pid_t child_pid, wpid;
     int *quantum;
     struct MethodCall* methods;
 
@@ -129,39 +171,49 @@ int main(int argc, char *argv[]) {
     quantum = getQuantum(argv);
     methods = getMethods(numChildren, argc, argv);
 
-    int count;
-    int count1;
-    for(count = 0; count < numChildren; count++) {
-        printf("methodName call %d:\n\tName: %s\n", count+1, methods[count].methodName);
-        for(count1 = 0; count1 < MAX_ARGUMENTS; count1++) {
-            if(methods[count].arguments[count1] == NULL) {
-                break;
-            }
-            printf("\targument %d: %s\n", count1 + 1, methods[count].arguments[count1]);
-        }
-    }
-
-    // start forking
-    for (int id=0; id<numChildren; id++) {
-        if ((child_pid = fork()) == 0) {
-            printf("Child %d\n", id + 1);
-//            displayChildInfo(id, quantum);
-            exit(0);
-        }
-    }
-
-    while ((wpid = wait(&status)) > 0);
-
-//    for (int count = 0; count < numChildren; count++) {
-//        for (int count1 = 0; count1 < MAX_ARGUMENTS; count1++) {
-//            if (methods[count].arguments[count1] == NULL) {
+//    int count;
+//    int count1;
+//    for(count = 0; count < numChildren; count++) {
+//        printf("methodName call %d:\n\tName: %s\n", count+1, methods[count].methodName);
+//        for(count1 = 0; count1 < MAX_ARGUMENTS; count1++) {
+//            if(methods[count].arguments[count1] == NULL) {
 //                break;
 //            }
-//            free(methods[count].arguments[count1]); // Free the allocated argument string
+//            printf("\targument %d: %s\n", count1 + 1, methods[count].arguments[count1]);
 //        }
 //    }
 
-    // deallocate memory
+    // start forking
+    pid_t childPIDs[numChildren];
+    for (int id=0; id<numChildren; id++) {
+        pid_t childPID = fork();
+        if (childPID == 0) {
+            signal(SIGCONT, handeSignals);
+            signal(SIGSTOP, handeSignals);
+            // Child is initially paused
+            printf("Child process (PID %d) is waiting...\n", getpid());
+
+            // The child will pause here until it receives SIGCONT from the parent
+            pause();
+
+            //Child execution
+            childProcess(id);
+
+            exit(0);
+        }
+        else if (childPID > 0){
+            childPIDs[id] = childPID;
+        }
+        else {
+            perror("Fork Failed");
+            return 1;
+        }
+    }
+//
+//    // Parent Process
+//    parentProcess(numChildren, childPIDs, quantum);
+
+    // Deallocate Memory
     munmap(quantum, sizeof(int));
     munmap(methods, sizeof(struct MethodCall) * numChildren);
 
