@@ -58,7 +58,7 @@ struct MethodCall* getMethods(int numMethods, int argc, char *argv[]) {
         exit(1);
     }
 
-    char methodName[50] = "./";
+    char methodName[50] = "";
     int structMethodCount = 0;
     int structArgumentCount = 1;
     int methodCount = 2;
@@ -67,7 +67,8 @@ struct MethodCall* getMethods(int numMethods, int argc, char *argv[]) {
         for(; methodCount < argc;) {
             strcat(methodName, argv[methodCount]);
             strcpy(mappedMethods[structMethodCount].methodName, methodName);
-            mappedMethods[structMethodCount].arguments[0] = mappedMethods[structMethodCount].methodName;
+            mappedMethods[structMethodCount].arguments[0] = argv[methodCount];
+            strcat(mappedMethods[structMethodCount].methodName, ".c");
             for(; argumentCount < argc; argumentCount++) {
                 if(strcmp(argv[argumentCount], ":") != 0) {
                     mappedMethods[structMethodCount].arguments[structArgumentCount++] = argv[argumentCount];
@@ -77,7 +78,7 @@ struct MethodCall* getMethods(int numMethods, int argc, char *argv[]) {
                     methodCount += 1 + structArgumentCount;
                     argumentCount += 2;
                     structArgumentCount = 1;
-                    strcpy(methodName, "./");
+                    strcpy(methodName, "");
                     break;
                 }
             }
@@ -99,8 +100,8 @@ void handeSignals(int signum) {
 }
 
 void childProcess(int id, struct MethodCall* methods) {
-    if (execve(methods[id].methodName, methods[id].arguments, NULL) == -1) {
-        perror("execv");
+    if (execvp(methods[id].methodName, methods[id].arguments) == -1) {
+        perror("execvp");
         exit(EXIT_FAILURE);
     }
 }
@@ -143,37 +144,21 @@ void parentProcess(int numChildren, pid_t* childPIDs, const int *quantum) {
     }
 }
 
-int main(int argc, char *argv[]) {
-    int numChildren;
-    int *quantum;
-    struct MethodCall* methods;
-
-    //user protection
-    //TODO: what if user didn't enter quantum
-    //TODO: what if user didn't enter any arguments
-    //TODO: what if user didn't enter any methods
-    if(argc <= 2) {
-        printf("Program needs method Name(s) and/or quantum in order to run.\n");
-        return 0;
+void checkMethods(int numChildren, struct MethodCall* methods) {
+    int count;
+    int count1;
+    for(count = 0; count < numChildren; count++) {
+        printf("methodName call %d:\n\tName: %s\n", count+1, methods[count].methodName);
+        for(count1 = 0; count1 < MAX_ARGUMENTS + 1; count1++) {
+            if(methods[count].arguments[count1] == NULL) {
+                break;
+            }
+            printf("\targument %d: %s\n", count1 + 1, methods[count].arguments[count1]);
+        }
     }
+}
 
-    // set variables
-    numChildren = numberOfChildren(argc, argv);
-    quantum = getQuantum(argv);
-    methods = getMethods(numChildren, argc, argv);
-
-//    int count;
-//    int count1;
-//    for(count = 0; count < numChildren; count++) {
-//        printf("methodName call %d:\n\tName: %s\n", count+1, methods[count].methodName);
-//        for(count1 = 0; count1 < MAX_ARGUMENTS + 1; count1++) {
-//            if(methods[count].arguments[count1] == NULL) {
-//                break;
-//            }
-//            printf("\targument %d: %s\n", count1 + 1, methods[count].arguments[count1]);
-//        }
-//    }
-
+void roundRobinSchedule(int numChildren, int *quantum, struct MethodCall* methods) {
     // start forking
     pid_t childPIDs[numChildren];
     for (int id=0; id<numChildren; id++) {
@@ -197,12 +182,36 @@ int main(int argc, char *argv[]) {
         }
         else {
             perror("Fork Failed");
-            return 1;
+            return;
         }
     }
 
     // Parent Process
     parentProcess(numChildren, childPIDs, quantum);
+}
+
+int main(int argc, char *argv[]) {
+    int numChildren;
+    int *quantum;
+    struct MethodCall* methods;
+
+    //user protection
+    //TODO: what if user didn't enter quantum
+    //TODO: what if user didn't enter any arguments
+    //TODO: what if user didn't enter any methods
+    if(argc <= 2) {
+        printf("Program needs method Name(s) and/or quantum in order to run.\n");
+        return 0;
+    }
+
+    // set variables
+    numChildren = numberOfChildren(argc, argv);
+    quantum = getQuantum(argv);
+    methods = getMethods(numChildren, argc, argv);
+
+    checkMethods(numChildren, methods);
+
+//    roundRobinSchedule(numChildren, quantum, methods);
 
     // Deallocate Memory
     munmap(quantum, sizeof(int));
