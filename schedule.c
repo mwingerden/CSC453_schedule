@@ -44,12 +44,10 @@ void getQuantum(char *argv[]) {
     quantum = (int) strtol(argv[1], NULL, 10);
 }
 
-void getMethods(int numMethods, int argc, char *argv[]) {
-    //TODO: Handle over 150 process calls.
-    //TODO: Handle over 10 argument calls.
+struct MethodCall *createMethods(int numMethods, int argc, char *argv[]) {
     size_t totalSize = sizeof(struct MethodCall) * numMethods;
 
-    methods = (struct MethodCall *) mmap(
+    struct MethodCall *methods = (struct MethodCall *) mmap(
             NULL,
             totalSize,
             PROT_WRITE, // Set the appropriate permissions
@@ -63,10 +61,9 @@ void getMethods(int numMethods, int argc, char *argv[]) {
         exit(1);
     }
 
-    int i;
-    int j;
-    for(i = 0; i < numProcesses; i++) {
-        for(j = 0; j < MAX_ARGUMENTS + 1; j++) {
+    int i, j;
+    for (i = 0; i < numMethods; i++) {
+        for (j = 0; j < MAX_ARGUMENTS + 1; j++) {
             methods[i].arguments[j] = NULL;
         }
     }
@@ -78,15 +75,12 @@ void getMethods(int numMethods, int argc, char *argv[]) {
     int argumentCount = 3;
     for (; structMethodCount < numMethods; structMethodCount++) {
         for (; methodCount < argc;) {
-//            strcat(methodName, argv[methodCount]);
             strcpy(methods[structMethodCount].methodName, argv[methodCount]);
             methods[structMethodCount].arguments[0] = argv[methodCount];
-//            strcat(mappedMethods[structMethodCount].methodName, ".c");
             for (; argumentCount < argc; argumentCount++) {
                 if (strcmp(argv[argumentCount], ":") != 0) {
                     methods[structMethodCount].arguments[structArgumentCount++] = argv[argumentCount];
                 } else {
-                    methods[numProcesses].arguments[structArgumentCount] = NULL;
                     methods[structMethodCount].arguments[structArgumentCount] = NULL;
                     methodCount += 1 + structArgumentCount;
                     argumentCount += 2;
@@ -98,6 +92,8 @@ void getMethods(int numMethods, int argc, char *argv[]) {
             break;
         }
     }
+
+    return methods;
 }
 
 void checkMethods() {
@@ -118,12 +114,9 @@ void signalHandler(int signal) {
 //    if (signal == SIGCONT) {
 //        printf("Child %d received SIGCONT signal from parent.\n", getpid());
 //    }
-//    else if (signal == SIGSTOP) {
-//        printf("Child %d received SIGSTOP signal from parent.\n", getpid());
-//    }
 }
 
-void sigalrm_handler(int signum) {
+void sigalrmHandler(int signum) {
 //    printf("Reached the alarm\n");
     // Stop current process
     kill(childPIDs[current_process], SIGSTOP);
@@ -169,7 +162,7 @@ void roundRobinSchedule() {
     // This is the parent process
     sleep(1); // Give the children some time to set up their signal handlers
 
-    signal(SIGALRM, sigalrm_handler);
+    signal(SIGALRM, sigalrmHandler);
     alarm(quantum / 1000);
 
     kill(childPIDs[0], SIGCONT);
@@ -197,7 +190,7 @@ int main(int argc, char *argv[]) {
     // set variables
     numberOfChildren(argc, argv);
     getQuantum(argv);
-    getMethods(numProcesses, argc, argv);
+    methods = createMethods(numProcesses, argc, argv);
 
 //    char cwd[1024];
 //    if (getcwd(cwd, sizeof(cwd)) != NULL) {
@@ -205,9 +198,9 @@ int main(int argc, char *argv[]) {
 //    } else {
 //        perror("getcwd");
 //    }
-    checkMethods();
+//    checkMethods();
 
-//    roundRobinSchedule();
+    roundRobinSchedule();
 
     // Deallocate Memory
 //    munmap(quantum, sizeof(int));
