@@ -29,13 +29,13 @@ int numberOfChildren(int argc, char *argv[]) {
     return semicolonCount;
 }
 
-int* getQuantum(char *argv[]) {
-    int *quantum = mmap(NULL, sizeof(int), PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-    if (quantum == MAP_FAILED) {
-        perror("Failed mmap in getQuantum\n");
-        exit(1);
-    }
-    *quantum = (int) strtol(argv[1], NULL, 10);
+int getQuantum(char *argv[]) {
+//    int quantum = mmap(NULL, sizeof(int), PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+//    if (quantum == MAP_FAILED) {
+//        perror("Failed mmap in getQuantum\n");
+//        exit(1);
+//    }
+    int quantum = (int) strtol(argv[1], NULL, 10);
     return quantum;
 }
 
@@ -58,7 +58,7 @@ struct MethodCall* getMethods(int numMethods, int argc, char *argv[]) {
         exit(1);
     }
 
-    char methodName[50] = "";
+    char methodName[50] = "./";
     int structMethodCount = 0;
     int structArgumentCount = 1;
     int methodCount = 2;
@@ -68,7 +68,7 @@ struct MethodCall* getMethods(int numMethods, int argc, char *argv[]) {
             strcat(methodName, argv[methodCount]);
             strcpy(mappedMethods[structMethodCount].methodName, methodName);
             mappedMethods[structMethodCount].arguments[0] = argv[methodCount];
-            strcat(mappedMethods[structMethodCount].methodName, ".c");
+//            strcat(mappedMethods[structMethodCount].methodName, ".c");
             for(; argumentCount < argc; argumentCount++) {
                 if(strcmp(argv[argumentCount], ":") != 0) {
                     mappedMethods[structMethodCount].arguments[structArgumentCount++] = argv[argumentCount];
@@ -78,7 +78,7 @@ struct MethodCall* getMethods(int numMethods, int argc, char *argv[]) {
                     methodCount += 1 + structArgumentCount;
                     argumentCount += 2;
                     structArgumentCount = 1;
-                    strcpy(methodName, "");
+                    strcpy(methodName, "./");
                     break;
                 }
             }
@@ -89,24 +89,31 @@ struct MethodCall* getMethods(int numMethods, int argc, char *argv[]) {
     return mappedMethods;
 }
 
-void handeSignals(int signum) {
-//    if (signum == SIGCONT) {
-//        printf("Received SIGCONT\n");
-//        // Handle continued execution
-//    } else if (signum == SIGSTOP) {
-//        printf("Received SIGSTOP\n");
-//        // Handle paused execution
-//    }
-}
-
-void childProcess(int id, struct MethodCall* methods) {
-    if (execvp(methods[id].methodName, methods[id].arguments) == -1) {
-        perror("execvp");
-        exit(EXIT_FAILURE);
+void checkMethods(int numChildren, struct MethodCall* methods) {
+    int count;
+    int count1;
+    for(count = 0; count < numChildren; count++) {
+        printf("methodName call %d:\n\tName: %s\n", count+1, methods[count].methodName);
+        for(count1 = 0; count1 < MAX_ARGUMENTS + 1; count1++) {
+            if(methods[count].arguments[count1] == NULL) {
+                break;
+            }
+            printf("\targument %d: %s\n", count1 + 1, methods[count].arguments[count1]);
+        }
     }
 }
 
-void parentProcess(int numChildren, pid_t* childPIDs, const int *quantum) {
+void childProcess(int id, struct MethodCall* methods) {
+    // The child will pause here until it receives SIGCONT from the parent
+    pause();
+    printf("Child Process: %d\n", id);
+//    if (execvp(methods[id].methodName, methods[id].arguments) == -1) {
+//        perror("execvp");
+//        exit(EXIT_FAILURE);
+//    }
+}
+
+void parentProcess(int numChildren, pid_t* childPIDs, const int quantum) {
     // Parent Process
     pid_t wpid;
     int numFinished = 0;
@@ -123,8 +130,8 @@ void parentProcess(int numChildren, pid_t* childPIDs, const int *quantum) {
         //TODO: Cancel sleep if current child has terminated in previous loop.
 //        printf("parent starts\n");
         kill(childPIDs[currentChild], SIGCONT);
-        sleep(*quantum / 1000);
-        kill(childPIDs[currentChild], SIGSTOP);
+//        sleep(quantum / 1000);
+//        kill(childPIDs[currentChild], SIGSTOP);
 //        waitpid(childPIDs[currentChild], NULL, WUNTRACED);
         wpid = waitpid(childPIDs[currentChild], NULL, WNOHANG);
 
@@ -144,55 +151,70 @@ void parentProcess(int numChildren, pid_t* childPIDs, const int *quantum) {
     }
 }
 
-void checkMethods(int numChildren, struct MethodCall* methods) {
-    int count;
-    int count1;
-    for(count = 0; count < numChildren; count++) {
-        printf("methodName call %d:\n\tName: %s\n", count+1, methods[count].methodName);
-        for(count1 = 0; count1 < MAX_ARGUMENTS + 1; count1++) {
-            if(methods[count].arguments[count1] == NULL) {
-                break;
-            }
-            printf("\targument %d: %s\n", count1 + 1, methods[count].arguments[count1]);
-        }
+int numProcesses = 0;
+int quantum = 0;
+int current_process = 0;
+pid_t childPIDs[MAX_PROCESSES];
+
+void signalHandler(int signal) {
+    if (signal == SIGCONT) {
+        printf("Child %d received SIGCONT signal from parent.\n", getpid());
+    }
+    else if (signal == SIGSTOP) {
+        printf("Child %d received SIGSTOP signal from parent.\n", getpid());
     }
 }
 
-void roundRobinSchedule(int numChildren, int *quantum, struct MethodCall* methods) {
-    // start forking
-    pid_t childPIDs[numChildren];
-    for (int id=0; id<numChildren; id++) {
-        pid_t childPID = fork();
-        if (childPID == 0) {
-            signal(SIGCONT, handeSignals);
-            signal(SIGSTOP, handeSignals);
-            // Child is initially paused
-            printf("Child process (PID %d) is waiting...\n", getpid());
+void sigalrm_handler(int signum) {
+    // Stop current process
+    kill(childPIDs[current_process], SIGSTOP);
+    // Switch to the next process
+    current_process = (current_process + 1) % numProcesses;
+    // Send a SIGUSR1 signal to the next process to wake it up
+    kill(childPIDs[current_process], SIGCONT);
+    alarm(quantum); // Set the alarm for the next quantum
+}
 
-            // The child will pause here until it receives SIGCONT from the parent
-            pause();
+void roundRobinSchedule(struct MethodCall* methods) {
+    int i;
+    for(i = 0; i < numProcesses; i++) {
+        childPIDs[i] = fork();
 
-            //Child execution
-            childProcess(id, methods);
-
-            exit(0);
+        if (childPIDs[i] == -1) {
+            perror("Fork failed");
+            exit(1);
         }
-        else if (childPID > 0){
-            childPIDs[id] = childPID;
-        }
-        else {
-            perror("Fork Failed");
-            return;
+
+        if (childPIDs[i] == 0) {
+            // This is a child process
+            signal(SIGCONT, signalHandler); // Set up signal handler for SIGUSR1
+
+            printf("Child %d is waiting for a signal from the parent...\n", getpid());
+            pause(); // Wait for a signal to be received
+            printf("Child %d continued...\n", getpid());
+            sleep(2);
+            exit(0); // Exit the child process after receiving the signal
         }
     }
 
-    // Parent Process
-    parentProcess(numChildren, childPIDs, quantum);
+    // This is the parent process
+    sleep(1); // Give the children some time to set up their signal handlers
+
+    signal(SIGALRM, sigalrm_handler);
+    alarm(1);
+
+    kill(childPIDs[0], SIGCONT);
+
+    for (i = 0; i < numProcesses; i++) {
+        int status;
+        waitpid(childPIDs[i], &status, 0);
+        printf("Child %d terminated\n", i);
+    }
 }
 
 int main(int argc, char *argv[]) {
-    int numChildren;
-    int *quantum;
+//    int numProcesses;
+//    int quantum;
     struct MethodCall* methods;
 
     //user protection
@@ -205,17 +227,17 @@ int main(int argc, char *argv[]) {
     }
 
     // set variables
-    numChildren = numberOfChildren(argc, argv);
+    numProcesses = numberOfChildren(argc, argv);
     quantum = getQuantum(argv);
-    methods = getMethods(numChildren, argc, argv);
+    methods = getMethods(numProcesses, argc, argv);
 
-    checkMethods(numChildren, methods);
+//    checkMethods(numProcesses, methods);
 
-//    roundRobinSchedule(numChildren, quantum, methods);
+    roundRobinSchedule(methods);
 
     // Deallocate Memory
-    munmap(quantum, sizeof(int));
-    munmap(methods, sizeof(struct MethodCall) * numChildren);
+//    munmap(quantum, sizeof(int));
+    munmap(methods, sizeof(struct MethodCall) * numProcesses);
 
     return 0;
 }
