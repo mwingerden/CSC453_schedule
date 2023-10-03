@@ -166,13 +166,14 @@ void signalHandler(int signal) {
 }
 
 void sigalrm_handler(int signum) {
+    printf("Reached the alarm\n");
     // Stop current process
     kill(childPIDs[current_process], SIGSTOP);
     // Switch to the next process
     current_process = (current_process + 1) % numProcesses;
     // Send a SIGUSR1 signal to the next process to wake it up
     kill(childPIDs[current_process], SIGCONT);
-    alarm(quantum); // Set the alarm for the next quantum
+    alarm(1); // Set the alarm for the next quantum
 }
 
 void roundRobinSchedule(struct MethodCall* methods) {
