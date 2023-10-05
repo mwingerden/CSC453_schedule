@@ -4,9 +4,6 @@
 #include<sys/wait.h>
 #include <unistd.h>
 #include <sys/mman.h>
-//TODO: Memory check. Ex: check result in getMethods is null
-//TODO: Test program where the user didn't input any :
-//TODO: Test program with 100 methods
 
 #define MAX_PROCESSES 150
 #define MAX_ARGUMENTS 10
@@ -149,27 +146,15 @@ void roundRobinSchedule(struct MethodCall *methods) {
     alarm(quantum / 1000);
     kill(childPIDs[currentProcess], SIGCONT);
     while(processFinished < numProcesses) {
-        printf("Waiting for Process: %d\n", currentProcess + 1);
-        fflush(stdout);
         pid_t temp = waitpid(childPIDs[currentProcess], &status, WUNTRACED);
-        printf("Child Response: %d\n", temp);
-        fflush(stdout);
 
         if (WIFSTOPPED(status)) {
             currentProcess = (currentProcess + 1) % numProcesses;
-            printf("Switched Processes to: %d\n", currentProcess + 1);
-            fflush(stdout);
             alarm(quantum / 1000);
             kill(childPIDs[currentProcess], SIGCONT);
-            printf("Started current Process: %d\n", currentProcess + 1);
-            fflush(stdout);
         } else if (WIFEXITED(status)) {
-            printf("Exited current Process: %d\n", currentProcess + 1);
-            fflush(stdout);
             alarm(quantum / 1000);
             currentProcess = (currentProcess + 1) % numProcesses;
-            printf("Switched Processes to: %d\n", currentProcess + 1);
-            fflush(stdout);
             kill(childPIDs[currentProcess], SIGCONT);
             if (processCheck[currentProcess] == 0) {
                 processFinished++;
@@ -181,11 +166,6 @@ void roundRobinSchedule(struct MethodCall *methods) {
 
 int main(int argc, char *argv[]) {
     struct MethodCall *methods;
-
-    //user protection
-    //TODO: what if user didn't enter quantum
-    //TODO: what if user didn't enter any arguments
-    //TODO: what if user didn't enter any methods
     if (argc <= 2) {
         printf("Program needs method Name(s) and/or quantum in order to run.\n");
         return 0;
