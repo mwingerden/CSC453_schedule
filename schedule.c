@@ -18,9 +18,8 @@ struct MethodCall {
 
 int numProcesses = 0;
 int quantum = 0;
-int current_process = 0;
+int currentProcess = 0;
 pid_t childPIDs[MAX_PROCESSES];
-struct MethodCall *methods;
 
 void numberOfChildren(int argc, char *argv[]) {
     int semicolonCount = 1;
@@ -96,7 +95,7 @@ struct MethodCall *createMethods(int numMethods, int argc, char *argv[]) {
     return methods;
 }
 
-void checkMethods() {
+void checkMethods(struct MethodCall *methods) {
     int count;
     int count1;
     for (count = 0; count < numProcesses; count++) {
@@ -117,17 +116,24 @@ void signalHandler(int signal) {
 }
 
 void sigalrmHandler(int signum) {
-//    printf("Reached the alarm\n");
-    // Stop current process
-    kill(childPIDs[current_process], SIGSTOP);
-    // Switch to the next process
-    current_process = (current_process + 1) % numProcesses;
-    // Send a SIGUSR1 signal to the next process to wake it up
-    kill(childPIDs[current_process], SIGCONT);
-    alarm(quantum / 1000); // Set the alarm for the next quantum
+// Stop the current process
+    kill(childPIDs[currentProcess], SIGSTOP);
+    printf("Entered Alarm with current process: %d\n", currentProcess + 1);
+    fflush(stdout);
+
+    // Move to the next process
+    currentProcess = (currentProcess + 1) % numProcesses;
+    printf("Switched Processes to: %d\n", currentProcess + 1);
+    fflush(stdout);
+
+    // Resume the next process
+//    kill(childPIDs[currentProcess], SIGCONT);
+
+    // Set the alarm for the next quantum
+//    alarm(quantum / 1000);
 }
 
-void roundRobinSchedule() {
+void roundRobinSchedule(struct MethodCall *methods) {
     int i;
 
 //    checkMethods(numProcesses, methods);
@@ -163,20 +169,64 @@ void roundRobinSchedule() {
     sleep(1); // Give the children some time to set up their signal handlers
 
     signal(SIGALRM, sigalrmHandler);
-    alarm(quantum / 1000);
 
-    kill(childPIDs[0], SIGCONT);
-
+    currentProcess = 0;
+    int processFinished = 0;
+    int status;
+    int processCheck[numProcesses];
     for (i = 0; i < numProcesses; i++) {
-        int status;
-        waitpid(childPIDs[i], &status, 0);
-//        printf("Child %d terminated\n", i);
+        processCheck[i] = 0;
     }
+//    printf("Exited current Process: %d\n", currentProcess + 1);
+//    fflush(stdout);
+    alarm(quantum / 1000);
+    kill(childPIDs[currentProcess], SIGCONT);
+    while(processFinished < numProcesses) {
+//        printf("Current Process: %d\n", currentProcess);
+//        fflush(stdout);
+        pid_t temp = waitpid(childPIDs[currentProcess], &status, WUNTRACED);
+
+        if(temp > 0) {
+//            alarm(quantum / 1000);
+            if(WIFSTOPPED(status)) {
+//                alarm(0);
+//                printf("Stopped current Process: %d\n", currentProcess + 1);
+//                fflush(stdout);
+                alarm(quantum / 1000);
+                kill(childPIDs[currentProcess], SIGCONT);
+                printf("Started current Process: %d\n", currentProcess + 1);
+                fflush(stdout);
+            }
+            else if(WIFEXITED(status)) {
+                alarm(0);
+                printf("Exited current Process: %d\n", currentProcess + 1);
+                fflush(stdout);
+                alarm(quantum / 1000);
+                kill(childPIDs[currentProcess], SIGCONT);
+                if(processCheck[currentProcess] == 0) {
+                    processFinished++;
+                    processCheck[currentProcess] = 1;
+//                    currentProcess = (currentProcess + 1) % numProcesses;
+//                    alarm(quantum / 1000);
+                }
+            }
+//            currentProcess = (currentProcess + 1) % numProcesses;
+        }
+    }
+
+//    kill(childPIDs[0], SIGCONT);
+//
+//    for (i = 0; i < numProcesses; i++) {
+//        int status;
+//        waitpid(childPIDs[i], &status, 0);
+////        printf("Child %d terminated\n", i);
+//    }
 }
 
 int main(int argc, char *argv[]) {
 //    int numProcesses;
 //    int quantum;
+    struct MethodCall *methods;
 
     //user protection
     //TODO: what if user didn't enter quantum
@@ -192,15 +242,9 @@ int main(int argc, char *argv[]) {
     getQuantum(argv);
     methods = createMethods(numProcesses, argc, argv);
 
-//    char cwd[1024];
-//    if (getcwd(cwd, sizeof(cwd)) != NULL) {
-//        printf("Current working directory: %s\n", cwd);
-//    } else {
-//        perror("getcwd");
-//    }
 //    checkMethods();
 
-    roundRobinSchedule();
+    roundRobinSchedule(methods);
 
     // Deallocate Memory
 //    munmap(quantum, sizeof(int));
