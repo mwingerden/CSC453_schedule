@@ -35,11 +35,6 @@ void numberOfChildren(int argc, char *argv[]) {
 }
 
 void getQuantum(char *argv[]) {
-//    int quantum = mmap(NULL, sizeof(int), PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-//    if (quantum == MAP_FAILED) {
-//        perror("Failed mmap in getQuantum\n");
-//        exit(1);
-//    }
     quantum = (int) strtol(argv[1], NULL, 10);
 }
 
@@ -73,70 +68,49 @@ struct MethodCall *createMethods(int numMethods, int argc, char *argv[]) {
     int methodCount = 2;
     int argumentCount = 3;
     for (; structMethodCount < numMethods; structMethodCount++) {
-        for (; methodCount < argc;) {
-            strcpy(methods[structMethodCount].methodName, argv[methodCount]);
-            methods[structMethodCount].arguments[0] = argv[methodCount];
-            for (; argumentCount < argc; argumentCount++) {
-                if (strcmp(argv[argumentCount], ":") != 0) {
-                    methods[structMethodCount].arguments[structArgumentCount++] = argv[argumentCount];
-                } else {
-                    methods[structMethodCount].arguments[structArgumentCount] = NULL;
-                    methodCount += 1 + structArgumentCount;
-                    argumentCount += 2;
-                    structArgumentCount = 1;
-                    strcpy(methodName, "");
-                    break;
-                }
-            }
-            break;
+        if(structMethodCount >= MAX_PROCESSES) {
+            printf("To many methods. Will not add: %s\n", argv[methodCount]);
         }
+        else {
+            for (; methodCount < argc;) {
+                strcpy(methods[structMethodCount].methodName, argv[methodCount]);
+                methods[structMethodCount].arguments[0] = argv[methodCount];
+                for (; argumentCount < argc; argumentCount++) {
+                    if (strcmp(argv[argumentCount], ":") != 0) {
+                        if(structArgumentCount > MAX_ARGUMENTS) {
+                            printf("To many arguments. Will not add: %s\n", argv[argumentCount]);
+                            structArgumentCount++;
+                        }
+                        else {
+                            methods[structMethodCount].arguments[structArgumentCount++] = argv[argumentCount];
+                        }
+                    } else {
+                        methods[structMethodCount].arguments[structArgumentCount] = NULL;
+                        methodCount += 1 + structArgumentCount;
+                        argumentCount += 2;
+                        structArgumentCount = 1;
+                        strcpy(methodName, "");
+                        break;
+                    }
+                }
+                break;
+            }
+        }
+
     }
 
     return methods;
 }
 
-void checkMethods(struct MethodCall *methods) {
-    int count;
-    int count1;
-    for (count = 0; count < numProcesses; count++) {
-        printf("methodName call %d:\n\tName: %s\n", count + 1, methods[count].methodName);
-        for (count1 = 0; count1 < MAX_ARGUMENTS + 1; count1++) {
-            if (methods[count].arguments[count1] == NULL) {
-                break;
-            }
-            printf("\targument %d: %s\n", count1 + 1, methods[count].arguments[count1]);
-        }
-    }
-}
-
-void signalHandler(int signal) {
-//    if (signal == SIGCONT) {
-//        printf("Child %d received SIGCONT signal from parent.\n", getpid());
-//    }
+void signalHandler() {
 }
 
 void sigalrmHandler(int signum) {
-// Stop the current process
     kill(childPIDs[currentProcess], SIGSTOP);
-    printf("Entered Alarm with current process: %d\n", currentProcess + 1);
-    fflush(stdout);
-
-    // Move to the next process
-    currentProcess = (currentProcess + 1) % numProcesses;
-    printf("Switched Processes to: %d\n", currentProcess + 1);
-    fflush(stdout);
-
-    // Resume the next process
-//    kill(childPIDs[currentProcess], SIGCONT);
-
-    // Set the alarm for the next quantum
-//    alarm(quantum / 1000);
 }
 
 void roundRobinSchedule(struct MethodCall *methods) {
     int i;
-
-//    checkMethods(numProcesses, methods);
 
     for (i = 0; i < numProcesses; i++) {
         childPIDs[i] = fork();
@@ -147,26 +121,21 @@ void roundRobinSchedule(struct MethodCall *methods) {
         }
 
         if (childPIDs[i] == 0) {
-            // This is a child process
             signal(SIGCONT, signalHandler);
 
-//            printf("Child %d is waiting for a signal from the parent...\n", getpid());
-            pause(); // Wait for a signal to be received
-//            printf("Child %d continued...\n", getpid());
-//            sleep(2);
-//            printf("Method name: %s\n", methods[i].methodName);
+            pause();
+
             if (execvp(methods[i].methodName, methods[i].arguments) == -1) {
                 perror("execvp");
                 fprintf(stderr, "Failed to execute: %s\n", methods[i].methodName);
                 exit(EXIT_FAILURE);
             }
 
-            exit(0); // Exit the child process after receiving the signal
+            exit(0);
         }
     }
 
-    // This is the parent process
-    sleep(1); // Give the children some time to set up their signal handlers
+    sleep(1);
 
     signal(SIGALRM, sigalrmHandler);
 
@@ -177,55 +146,40 @@ void roundRobinSchedule(struct MethodCall *methods) {
     for (i = 0; i < numProcesses; i++) {
         processCheck[i] = 0;
     }
-//    printf("Exited current Process: %d\n", currentProcess + 1);
-//    fflush(stdout);
     alarm(quantum / 1000);
     kill(childPIDs[currentProcess], SIGCONT);
     while(processFinished < numProcesses) {
-//        printf("Current Process: %d\n", currentProcess);
-//        fflush(stdout);
+        printf("Waiting for Process: %d\n", currentProcess + 1);
+        fflush(stdout);
         pid_t temp = waitpid(childPIDs[currentProcess], &status, WUNTRACED);
+        printf("Child Response: %d\n", temp);
+        fflush(stdout);
 
-        if(temp > 0) {
-//            alarm(quantum / 1000);
-            if(WIFSTOPPED(status)) {
-//                alarm(0);
-//                printf("Stopped current Process: %d\n", currentProcess + 1);
-//                fflush(stdout);
-                alarm(quantum / 1000);
-                kill(childPIDs[currentProcess], SIGCONT);
-                printf("Started current Process: %d\n", currentProcess + 1);
-                fflush(stdout);
+        if (WIFSTOPPED(status)) {
+            currentProcess = (currentProcess + 1) % numProcesses;
+            printf("Switched Processes to: %d\n", currentProcess + 1);
+            fflush(stdout);
+            alarm(quantum / 1000);
+            kill(childPIDs[currentProcess], SIGCONT);
+            printf("Started current Process: %d\n", currentProcess + 1);
+            fflush(stdout);
+        } else if (WIFEXITED(status)) {
+            printf("Exited current Process: %d\n", currentProcess + 1);
+            fflush(stdout);
+            alarm(quantum / 1000);
+            currentProcess = (currentProcess + 1) % numProcesses;
+            printf("Switched Processes to: %d\n", currentProcess + 1);
+            fflush(stdout);
+            kill(childPIDs[currentProcess], SIGCONT);
+            if (processCheck[currentProcess] == 0) {
+                processFinished++;
+                processCheck[currentProcess] = 1;
             }
-            else if(WIFEXITED(status)) {
-                alarm(0);
-                printf("Exited current Process: %d\n", currentProcess + 1);
-                fflush(stdout);
-                alarm(quantum / 1000);
-                kill(childPIDs[currentProcess], SIGCONT);
-                if(processCheck[currentProcess] == 0) {
-                    processFinished++;
-                    processCheck[currentProcess] = 1;
-//                    currentProcess = (currentProcess + 1) % numProcesses;
-//                    alarm(quantum / 1000);
-                }
-            }
-//            currentProcess = (currentProcess + 1) % numProcesses;
         }
     }
-
-//    kill(childPIDs[0], SIGCONT);
-//
-//    for (i = 0; i < numProcesses; i++) {
-//        int status;
-//        waitpid(childPIDs[i], &status, 0);
-////        printf("Child %d terminated\n", i);
-//    }
 }
 
 int main(int argc, char *argv[]) {
-//    int numProcesses;
-//    int quantum;
     struct MethodCall *methods;
 
     //user protection
@@ -237,17 +191,12 @@ int main(int argc, char *argv[]) {
         return 0;
     }
 
-    // set variables
     numberOfChildren(argc, argv);
     getQuantum(argv);
     methods = createMethods(numProcesses, argc, argv);
 
-//    checkMethods();
-
     roundRobinSchedule(methods);
 
-    // Deallocate Memory
-//    munmap(quantum, sizeof(int));
     munmap(methods, sizeof(struct MethodCall) * numProcesses);
 
     return 0;
